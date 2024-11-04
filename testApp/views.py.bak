@@ -1,0 +1,59 @@
+from django.shortcuts import render, redirect
+from django.contrib.auth import authenticate, login
+from django.contrib.auth.forms import AuthenticationForm
+from .forms import CustomUserCreationForm
+import requests
+import random
+import string
+
+def landing(request):
+    return render(request, 'testApp/landing.html')
+
+def dashboard(request):
+    if request.user.is_authenticated:
+        return render(request, 'testApp/dashboard.html')
+    else:
+        return redirect('landing')
+
+def register(request):
+    if request.method == 'POST':
+        form = CustomUserCreationForm(request.POST)
+        if form.is_valid():
+            habbo_username = form.cleaned_data.get('habbo_username')
+            verification_code = ''.join(random.choices(string.ascii_letters + string.digits, k=6))
+            request.session['verification_code'] = verification_code
+            request.session['habbo_username'] = habbo_username
+            return render(request, 'testApp/verify_motto.html', {'verification_code': verification_code})
+    else:
+        form = CustomUserCreationForm()
+    return render(request, 'testApp/register.html', {'form': form})
+
+def verify_habbo(request):
+    verification_code = request.session.get('verification_code')
+    habbo_username = request.session.get('habbo_username')
+    if verification_code and habbo_username:
+        response = requests.get(f'https://www.habbo.com/api/public/users?name={habbo_username}')
+        if response.status_code == 200:
+            user_data = response.json()
+            if user_data['motto'] == verification_code:
+                form = CustomUserCreationForm(request.session.get('form_data'))
+                if form.is_valid():
+                    user = form.save()
+                    login(request, user)
+                    return redirect('dashboard')
+        return render(request, 'testApp/verify_motto.html', {'error': "Verification failed, please try again."})
+    return redirect('register')
+
+def custom_login(request):
+    if request.method == 'POST':
+        form = AuthenticationForm(request, data=request.POST)
+        if form.is_valid():
+            username = form.cleaned_data.get('username')
+            password = form.cleaned_data.get('password')
+            user = authenticate(request, username=username, password=password)
+            if user is not None:
+                login(request, user)
+                return redirect('dashboard')
+    else:
+        form = AuthenticationForm()
+    return render(request, 'testApp/login.html', {'form': form})
